@@ -2,7 +2,7 @@
 ## Title: XanaBags
 ## Notes: Colours bag gear by whether you can equip it and whether it is an upgrade, marks food, drink and new items and shows dots for better stats.
 ## Author: Srdan Nikolic
-## Version: 0.11.0
+## Version: 0.11.1
 ## Category: Xana
 
 XanaBags.lua

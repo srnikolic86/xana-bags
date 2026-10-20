@@ -12,7 +12,7 @@ colours; see [Changing the colours](#changing-the-colours)):
 - **Purple border:** it's new since you last closed your bags. On gear, food
   and drink only the left half is purple; the right half keeps its colour.
 
-Version 0.11.0, written for the WoW Forever beta (interface 16001).
+Version 0.11.1, written for the WoW Forever beta (interface 16001).
 Not yet tested in game.
 
 ## Installing

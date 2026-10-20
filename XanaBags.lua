@@ -562,7 +562,8 @@ local function HookBagFrames()
 			frame:HookScript("OnHide", OnBagHidden)
 		end
 	end
-	if ContainerFrame_Update then hooksecurefunc("ContainerFrame_Update", RequestRefresh) end
+	-- Re-lays out an open window, e.g. when a bag is collapsed with the gamepad.
+	if ContainerFrame_GenerateFrame then hooksecurefunc("ContainerFrame_GenerateFrame", RequestRefresh) end
 end
 
 ---------------------------------------------------------------------------
