@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: XanaBags
-## Notes: Colours bag gear by whether you can equip it and whether it is an upgrade, marks food, drink and new items and shows dots for better stats.
+## Notes: Press R3 on an item in your bags or bank, or Alt+click it, to give it a colored border of your choice. Colored items, then quest items, are sorted to the front when the bags or bank open. /xbank lists what was in your bank at your last visit.
 ## Author: Srdan Nikolic
-## Version: 0.11.1
+## Version: 0.19.0
 ## Category: Xana
 
 XanaBags.lua
