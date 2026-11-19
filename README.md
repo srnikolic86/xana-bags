@@ -3,8 +3,7 @@
 Gives the items you choose in your bags and bank a colored border, for World of Warcraft:
 Forever.
 
-Version 0.19.0, written for the WoW Forever beta (interface 16001).
-Not yet tested in game.
+Version 0.19.0, for WoW Forever (interface 16001). Tested in game.
 
 ## Installing
 
@@ -117,7 +116,7 @@ again closes it. The Close button also closes it.
 ## How it is saved
 
 Colors are saved per character, in character-specific macros named "XanaBags",
-"XanaBags 2" and so on, because the Forever beta doesn't reload addon settings
+"XanaBags 2" and so on, because the Forever client doesn't reload addon settings
 between sessions. Each macro holds about 30 items, and uses one of your
 character's macro slots. If the slots are full, XanaBags says so in chat, and
 colors that don't fit are lost at logout.
