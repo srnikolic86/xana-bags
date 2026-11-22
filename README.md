@@ -67,11 +67,18 @@ are those the game marks as such, including items that start a quest. An ordinar
 item a quest happens to ask for doesn't count.
 Stacks of the same item may merge as they move.
 
-- If no item has a color and none is a quest item, nothing moves.
+- If you have a reagent bag equipped, anything that fits in it moves there first,
+  as long as it has a free slot. That includes items you colored, but quest items
+  stay in your normal bags. Stacks only move into empty slots. The reagent bag
+  then sorts in the same order as above, so its colored items are grouped at the
+  front.
+- Apart from the move to the reagent bag, if no item has a color and none is a
+  quest item, nothing moves.
 - Sorting doesn't start or continue in combat, while you hold an item or are
   targeting with a spell, or while the color picker is open. It also stops if
   you close the bags. It starts over the next time you open them.
-- Soul bags, herb bags, quivers and other special bags are left alone.
+- Soul bags, herb bags, quivers and other special bags are left alone. The reagent
+  bag is the only one items move into.
 - Changing a color doesn't re-sort until you next open the bags.
 
 ## The bank
@@ -97,7 +104,7 @@ world, make a macro containing this line and put it on your action bar:
 ```
 
 Running it opens a window listing everything from your last visit, and running it
-again closes it. The Close button also closes it.
+again closes it. The X button in its corner also closes it.
 
 - Items you've colored come first, each with its color around its icon, in the
   same order the sort uses. The rest follow by name.

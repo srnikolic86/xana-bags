@@ -6,7 +6,9 @@
 --
 -- Opening the bags moves the colored items to the front, grouped by color, with
 -- the hearthstone's color first. Quest items come next, then everything else.
--- Opening the bank does the same inside the bank.
+-- Items that fit in the reagent bag move there first, unless they are quest items,
+-- and that bag is grouped by color too. Opening the bank does the same inside the
+-- bank, minus the reagents.
 --
 -- The bank's contents are remembered at every visit, and /xbank lists them from
 -- anywhere.
@@ -30,6 +32,7 @@ local HEARTHSTONE_ID = 6948
 -- is -1), and the enums can't be trusted for this.
 local BANK_MAIN_BAG = 6
 local BANK_BAGS = { BANK_MAIN_BAG, 7, 8, 9, 10, 11, 12, 13, 14 }
+local REAGENT_BAG = 5
 local QUEST_ITEM_CLASS = (Enum and Enum.ItemClass and Enum.ItemClass.Questitem) or 12
 local SORT_INTERVAL = 0.1     -- seconds between passes, giving the server time to answer
 local SORT_MOVES_PER_PASS = 4
@@ -39,6 +42,7 @@ local ItemLink = (C_Container and C_Container.GetContainerItemLink) or GetContai
 local BagItemID = (C_Container and C_Container.GetContainerItemID) or GetContainerItemID
 local ItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
 local ItemInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+local ItemFamily = (C_Item and C_Item.GetItemFamily) or GetItemFamily
 local BagSlotCount = (C_Container and C_Container.GetContainerNumSlots) or GetContainerNumSlots
 local BagFreeSlots = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
 local PickupItem = (C_Container and C_Container.PickupContainerItem) or PickupContainerItem
@@ -755,7 +759,8 @@ end
 --
 -- The bags and the bank each sort within themselves; nothing moves between them.
 -- Special bags (soul, herb, quiver...) are left alone, since most items can't go
--- in them.
+-- in them. The reagent bag is the exception: before the bags sort, what fits in
+-- it is moved there, and it then sorts within itself like the others.
 ---------------------------------------------------------------------------
 local function ItemState(bag, slot)
 	if C_Container and C_Container.GetContainerItemInfo then
@@ -782,7 +787,7 @@ local function IsQuestItem(id, bag, slot)
 	return false
 end
 
--- The slots of the normal bags in the order the player sees them: left to right,
+-- The slots of normal bags and the reagent bag in the order the player sees them: left to right,
 -- top to bottom in each window. The game's own slot numbers don't say where a
 -- slot appears. Slots with no button on screen (a closed bag) come last.
 local function ReadSlots(bags)
@@ -798,7 +803,7 @@ local function ReadSlots(bags)
 	local slots = {}
 	for _, bag in ipairs(bags) do
 		local _, family = BagFreeSlots(bag)
-		if (family or 0) == 0 then
+		if (family or 0) == 0 or bag == REAGENT_BAG then
 			for slot = 1, BagSlotCount(bag) or 0 do
 				local s = { bag = bag, slot = slot, screen = onScreen[bag * 1000 + slot] }
 				s.id = BagItemID(bag, slot)
@@ -909,9 +914,58 @@ local function SortPass(slots, wanted)
 	return finished
 end
 
+-- Items the game refused to put in the reagent bag, for this session. What fits
+-- depends on a game rule (ReagentBagsFitItemsOfTheirBagFamily), so the checks
+-- below are a prediction and the game has the last word.
+local reagentBagRefused = {} -- itemID -> true
+
+local function FitsReagentBag(id, bagFamily)
+	if reagentBagRefused[id] then return false end
+	if ItemFamily and bit.band(ItemFamily(id) or 0, bagFamily) ~= 0 then return true end
+	return select(17, ItemInfo(id)) == true -- isCraftingReagent
+end
+
+local function MoveToReagentBag(from, to)
+	PickupItem(from.bag, from.slot)
+	if not CursorHasItem() then return end
+	PickupItem(to.bag, to.slot)
+	if CursorHasItem() then
+		ClearCursor()
+		reagentBagRefused[from.id] = true
+	end
+end
+
+-- Only into empty slots, and quest items stay with their group.
+-- Each slot is tried once per sort, so an item the server sends back can't be
+-- retried forever. Returns true when there is nothing more to move.
+local function MoveReagents(job)
+	local size = BagSlotCount(REAGENT_BAG) or 0
+	if size == 0 then return true end
+	local _, bagFamily = BagFreeSlots(REAGENT_BAG)
+
+	local empty = {}
+	for slot = 1, size do
+		if not BagItemID(REAGENT_BAG, slot) then empty[#empty + 1] = { bag = REAGENT_BAG, slot = slot } end
+	end
+
+	local moves = 0
+	for _, s in ipairs(ReadSlots(job.Bags())) do
+		if moves >= SORT_MOVES_PER_PASS or moves >= #empty then break end
+		local key = s.bag * 1000 + s.slot
+		if s.id and not s.locked and not job.triedReagents[key]
+			and not IsQuestItem(s.id, s.bag, s.slot) and FitsReagentBag(s.id, bagFamily or 0) then
+			job.triedReagents[key] = true
+			moves = moves + 1
+			MoveToReagentBag(s, empty[moves])
+		end
+	end
+	return moves == 0
+end
+
 local sorts = {
 	bags = {
 		label = "bags",
+		movesReagents = true,
 		IsOpen = AnyBagShown,
 		Bags = function()
 			local bags = {}
@@ -926,6 +980,13 @@ local sorts = {
 	},
 }
 
+-- One pass over these bags. Returns true when they are in order.
+local function SortBags(bags)
+	local slots = ReadSlots(bags)
+	local wanted = WantedOrder(slots)
+	return not wanted or SortPass(slots, wanted)
+end
+
 -- Stops for anything that needs the cursor or the window to itself; the next time
 -- the window opens it starts over. job.passes is nil when no sort is running.
 local function SortStep(job)
@@ -935,9 +996,12 @@ local function SortStep(job)
 		return
 	end
 	job.passes = job.passes + 1
-	local slots = ReadSlots(job.Bags())
-	local wanted = WantedOrder(slots)
-	if not wanted or SortPass(slots, wanted) then
+	local done = false
+	if not job.movesReagents or MoveReagents(job) then
+		done = SortBags(job.Bags())
+		if job.movesReagents then done = SortBags({ REAGENT_BAG }) and done end
+	end
+	if done then
 		job.passes = nil
 	elseif job.passes >= SORT_MAX_PASSES then
 		job.passes = nil
@@ -952,6 +1016,7 @@ function StartSort(name)
 	local job = sorts[name]
 	if job.passes or not macrosReady then return end
 	job.passes = 0
+	job.triedReagents = {}
 	SortStep(job)
 end
 
@@ -1111,9 +1176,9 @@ local BANK_ICON_SIZE = 20
 local BANK_ROW_STEP = 24
 local BANK_COLUMN_WIDTH = 230
 local BANK_COUNT_WIDTH = 40
-local BANK_PADDING = 12
-local BANK_ROWS_TOP = 40
-local BANK_MIN_WIDTH = 300
+local BANK_PADDING = 20     -- clears the dialog border
+local BANK_ROWS_TOP = 36    -- below the close button
+local BANK_MIN_WIDTH = 340
 local BANK_SCREEN_MARGIN = 40
 
 -- Nothing is kept if the bank's bags have no size yet: they can't be read, and
@@ -1133,27 +1198,35 @@ function RememberBank()
 	SaveBank()
 end
 
-local bankWindow = CreateFrame("Frame", "XanaBagsBankList", UIParent)
+-- Styled like a classic Blizzard dialog: the marbled dialog background in the
+-- stone border and the red X close button; no title. BackdropTemplate where the client has it, the old built-in SetBackdrop
+-- otherwise; without either, a flat dark fill.
+local BACKDROP_TEMPLATE = BackdropTemplateMixin and "BackdropTemplate" or nil
+
+local bankWindow = CreateFrame("Frame", "XanaBagsBankList", UIParent, BACKDROP_TEMPLATE)
 bankWindow:SetPoint("CENTER")
 bankWindow:SetFrameStrata("FULLSCREEN_DIALOG") -- above the bag windows' borders
 bankWindow:SetClampedToScreen(true)
 bankWindow:EnableMouse(true)
 bankWindow:Hide()
-bankWindow.bg = bankWindow:CreateTexture(nil, "BACKGROUND")
-bankWindow.bg:SetAllPoints()
-bankWindow.bg:SetColorTexture(0, 0, 0, 0.85)
-
-bankWindow.title = bankWindow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-bankWindow.title:SetPoint("TOPLEFT", BANK_PADDING, -BANK_PADDING)
-bankWindow.title:SetText("Bank, as of your last visit")
+if bankWindow.SetBackdrop then
+	bankWindow:SetBackdrop({
+		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+		tile = true, tileSize = 32, edgeSize = 32,
+		insets = { left = 11, right = 12, top = 12, bottom = 11 },
+	})
+else
+	bankWindow.bg = bankWindow:CreateTexture(nil, "BACKGROUND")
+	bankWindow.bg:SetAllPoints()
+	bankWindow.bg:SetColorTexture(0, 0, 0, 0.85)
+end
 
 bankWindow.empty = bankWindow:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 bankWindow.empty:SetPoint("TOPLEFT", BANK_PADDING, -BANK_ROWS_TOP)
 
-bankWindow.close = CreateFrame("Button", nil, bankWindow, "UIPanelButtonTemplate")
-bankWindow.close:SetSize(70, 22)
-bankWindow.close:SetPoint("TOPRIGHT", -BANK_PADDING, -8)
-bankWindow.close:SetText(CLOSE or "Close")
+bankWindow.close = CreateFrame("Button", nil, bankWindow, "UIPanelCloseButton")
+bankWindow.close:SetPoint("TOPRIGHT", -4, -4)
 bankWindow.close:SetScript("OnClick", function() bankWindow:Hide() end)
 
 local bankRows = {}
